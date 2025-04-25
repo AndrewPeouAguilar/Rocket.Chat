@@ -40,17 +40,17 @@ export class OmnichannelUnits extends OmnichannelAdministration {
 	}
 
 	private selectOption(name: string) {
-		return this.page.locator(`[role=option][value="${name}"]`);
+		return this.page.getByRole('option', { name, exact: true });
 	}
 
 	public selectOptionChip(name: string) {
 		return this.page.getByRole('option', { name });
 	}
 
-	async selectDepartment({ name, _id }: { name: string; _id: string }) {
+	async selectDepartment(name: string) {
 		await this.inputDepartments.click();
 		await this.inputDepartments.fill(name);
-		await this.selectOption(_id).click();
+		await this.selectOption(name).click();
 		await this.contextualBar.click({ position: { x: 0, y: 0 } });
 	}
 
