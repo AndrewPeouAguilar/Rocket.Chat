@@ -580,7 +580,7 @@ export class Cursor<T extends { _id: string }, TOptions extends Options<T>, TPro
 		// else.
 		if (this.reactive) {
 			qid = this.collection.claimNextQueryId();
-			this.collection.queries[qid] = query;
+			this.collection._queries[qid] = query;
 		}
 
 		query.results = this._getRawObjects({ ordered });
@@ -653,7 +653,7 @@ export class Cursor<T extends { _id: string }, TOptions extends Options<T>, TPro
 			collection: this.collection,
 			stop: () => {
 				if (this.reactive) {
-					delete this.collection.queries[qid];
+					delete this.collection._queries[qid];
 				}
 			},
 			isReady: false,

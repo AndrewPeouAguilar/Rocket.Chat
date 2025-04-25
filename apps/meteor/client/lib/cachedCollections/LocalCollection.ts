@@ -26,8 +26,6 @@ import {
 export type QueryId = `${number}` & { __brand: 'QueryId' };
 
 interface ILocalCollection<T extends { _id: string }> {
-	next_qid: number;
-	queries: Record<QueryId, Query<T, Options<T>, any>>;
 	paused: boolean;
 	find(selector?: Filter<T> | T['_id']): Cursor<T, Options<T>, T>;
 	find<O extends Options<T>>(selector?: Filter<T> | T['_id'], options?: O): Cursor<T, O, DispatchTransform<O['transform'], T, T>>;
@@ -180,7 +178,7 @@ interface ILocalCollection<T extends { _id: string }> {
 export class LocalCollection<T extends { _id: string }> implements ILocalCollection<T> {
 	readonly _observeQueue = new SynchronousQueue();
 
-	next_qid = 1;
+	private nextQueryIdCounter = 1;
 
 	// qid -> live query object. keys:
 	//  ordered: bool. ordered queries have addedBefore/movedBefore callbacks.
@@ -189,7 +187,7 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 	//  resultsSnapshot: snapshot of results. null if not paused.
 	//  cursor: Cursor object for the query.
 	//  selector, sorter, (callbacks): functions
-	queries: Record<QueryId, Query<T, Options<T>, any>> = Object.create(null);
+	_queries: Record<QueryId, Query<T, Options<T>, any>> = Object.create(null);
 
 	// null if not saving originals; an IdMap from id to original document value
 	// if saving originals. See comments before saveOriginals().
@@ -239,23 +237,23 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 	}
 
 	claimNextQueryId() {
-		return `${this.next_qid++}` as QueryId;
+		return `${this.nextQueryIdCounter++}` as QueryId;
 	}
 
 	getAllQueryIds() {
-		return Object.keys(this.queries) as QueryId[];
-	}
-
-	countDocuments(selector?: Filter<T>, options?: CountDocumentsOptions) {
-		return this.find(selector ?? {}, options).countAsync();
-	}
-
-	estimatedDocumentCount(options: CountDocumentsOptions) {
-		return this.find({}, options).countAsync();
+		return Object.keys(this._queries) as QueryId[];
 	}
 
 	find(selector: Filter<T> | T['_id'] = {}, options?: Options<T>) {
 		return new Cursor(this, selector, options);
+	}
+
+	countDocuments(selector: Filter<T> = {}, options?: CountDocumentsOptions) {
+		return this.find(selector, options).countAsync();
+	}
+
+	estimatedDocumentCount(options?: CountDocumentsOptions) {
+		return this.find({}, options).countAsync();
 	}
 
 	findOne(selector?: Filter<T> | T['_id'], options: Options<T> = {}) {
@@ -296,7 +294,7 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 
 		// trigger live queries that match
 		for (const qid of this.getAllQueryIds()) {
-			const query = this.queries[qid];
+			const query = this._queries[qid];
 
 			if (query.dirty) {
 				continue;
@@ -314,8 +312,8 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 		}
 
 		queriesToRecompute.forEach((qid) => {
-			if (this.queries[qid]) {
-				this._recomputeResults(this.queries[qid]);
+			if (this._queries[qid]) {
+				this._recomputeResults(this._queries[qid]);
 			}
 		});
 
@@ -332,7 +330,7 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 
 		// trigger live queries that match
 		for (const qid of this.getAllQueryIds()) {
-			const query = this.queries[qid];
+			const query = this._queries[qid];
 
 			if (query.dirty) {
 				continue;
@@ -351,8 +349,8 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 		}
 
 		queriesToRecompute.forEach((qid) => {
-			if (this.queries[qid]) {
-				this._recomputeResults(this.queries[qid]);
+			if (this._queries[qid]) {
+				this._recomputeResults(this._queries[qid]);
 			}
 		});
 
@@ -375,7 +373,7 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 
 		// Take a snapshot of the query results for each query.
 		this.getAllQueryIds().forEach((qid) => {
-			const query = this.queries[qid];
+			const query = this._queries[qid];
 			query.resultsSnapshot = clone(query.results);
 		});
 	}
@@ -386,7 +384,7 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 		this.clear();
 
 		this.getAllQueryIds().forEach((qid) => {
-			const query = this.queries[qid];
+			const query = this._queries[qid];
 
 			if (query.ordered) {
 				query.results = [];
@@ -417,7 +415,7 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 			const removeDoc = this.get(removeId)!;
 
 			this.getAllQueryIds().forEach((qid) => {
-				const query = this.queries[qid];
+				const query = this._queries[qid];
 
 				if (query.dirty) {
 					return;
@@ -451,7 +449,7 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 
 		// run live query callbacks _after_ we've removed the documents.
 		queryRemove.forEach((remove) => {
-			const query = this.queries[remove.qid];
+			const query = this._queries[remove.qid];
 
 			if (query) {
 				this._removeFromResultsSync(query, remove.doc);
@@ -459,7 +457,7 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 		});
 
 		queriesToRecompute.forEach((qid) => {
-			const query = this.queries[qid];
+			const query = this._queries[qid];
 
 			if (query) {
 				this._recomputeResults(query);
@@ -487,7 +485,7 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 
 		// run live query callbacks _after_ we've removed the documents.
 		for (const remove of queryRemove) {
-			const query = this.queries[remove.qid];
+			const query = this._queries[remove.qid];
 
 			if (query) {
 				// eslint-disable-next-line no-await-in-loop
@@ -495,7 +493,7 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 			}
 		}
 		queriesToRecompute.forEach((qid) => {
-			const query = this.queries[qid];
+			const query = this._queries[qid];
 
 			if (query) {
 				this._recomputeResults(query);
@@ -526,7 +524,7 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 		this.paused = false;
 
 		this.getAllQueryIds().forEach((qid) => {
-			const query = this.queries[qid];
+			const query = this._queries[qid];
 
 			if (query.dirty) {
 				query.dirty = false;
@@ -597,7 +595,7 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 		const idsMatched = this._idsMatchedBySelector(selector);
 
 		this.getAllQueryIds().forEach((qid) => {
-			const query = this.queries[qid];
+			const query = this._queries[qid];
 
 			if ((query.cursor.skip || query.cursor.limit) && !this.paused) {
 				// Catch the case of a reactive `count()` on a cursor with skip
@@ -732,7 +730,7 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 		});
 
 		(Object.keys(recomputeQids) as QueryId[]).forEach((qid) => {
-			const query = this.queries[qid];
+			const query = this._queries[qid];
 
 			if (query) {
 				this._recomputeResults(query, qidToOriginalResults[qid]);
@@ -834,7 +832,7 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 		});
 
 		recomputeQids.forEach((qid) => {
-			const query = this.queries[qid];
+			const query = this._queries[qid];
 			if (query) {
 				this._recomputeResults(query, qidToOriginalResults[qid]);
 			}
@@ -982,7 +980,7 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 		const matchedBefore = new Map<QueryId, boolean>();
 
 		this.getAllQueryIds().forEach((qid) => {
-			const query = this.queries[qid];
+			const query = this._queries[qid];
 
 			if (query.dirty) {
 				return;
@@ -1010,7 +1008,7 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 		const recomputeQids = new Set<QueryId>();
 
 		for (const qid of this.getAllQueryIds()) {
-			const query = this.queries[qid];
+			const query = this._queries[qid];
 
 			if (query.dirty) {
 				continue;
@@ -1051,7 +1049,7 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 
 		const recomputeQids: Record<QueryId, boolean> = {};
 		for (const qid of this.getAllQueryIds()) {
-			const query = this.queries[qid];
+			const query = this._queries[qid];
 
 			if (query.dirty) {
 				continue;
@@ -1118,7 +1116,7 @@ export class LocalCollection<T extends { _id: string }> implements ILocalCollect
 	}
 
 	recomputeAllResults() {
-		for (const query of Object.values(this.queries)) {
+		for (const query of Object.values(this._queries)) {
 			this._recomputeResults(query);
 		}
 	}
