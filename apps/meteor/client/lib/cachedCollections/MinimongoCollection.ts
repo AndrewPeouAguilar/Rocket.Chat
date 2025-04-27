@@ -3,6 +3,7 @@ import type { Filter, Hint, Sort } from 'mongodb';
 import { create } from 'zustand';
 
 import type { DispatchTransform } from './Cursor';
+import type { IDocumentMapStore } from './IDocumentMapStore';
 import { LocalCollection } from './LocalCollection';
 
 export type Transform<T> = ((doc: T) => any) | null | undefined;
@@ -33,19 +34,10 @@ export type Options<T> = {
 	transform?: Transform<T> | undefined;
 };
 
-interface IDocumentMapStore<T extends { _id: string }> {
-	records: T[];
-	get(_id: T['_id']): T | undefined;
-	find<U extends T>(predicate: (record: T) => record is U): U | undefined;
-	find(predicate: (record: T) => boolean): T | undefined;
-	filter<U extends T>(predicate: (record: T) => record is U): U[];
-	filter(predicate: (record: T) => boolean): T[];
-	replaceAll(records: T[]): void;
-}
-
 export class MinimongoCollection<T extends { _id: string }> extends Mongo.Collection<T> {
 	readonly use = create<IDocumentMapStore<T>>()((set, get) => ({
 		records: [],
+		has: (id: T['_id']) => get().records.some((record) => record._id === id),
 		get: (id: T['_id']) => get().records.find((record) => record._id === id),
 		find: (predicate: (record: T) => boolean) => get().records.find(predicate),
 		filter: (predicate: (record: T) => boolean) => get().records.filter(predicate),
